@@ -1,16 +1,11 @@
-# tests/test_auto_tuner.py
-import unittest
-import numpy as np
-from src.auto_tuner import auto_tune
+import pytest
+from src.auto_tuner import AutoTuner
 
-class TestAutoTuner(unittest.TestCase):
-    def test_auto_tune(self):
-        A = np.random.rand(10000).astype(np.float32)
-        B = np.random.rand(10000).astype(np.float32)
-        
-        best_kernel = auto_tune(A, B)
-        self.assertIn(best_kernel, [kernel_tuning_1, kernel_tuning_2])
+def test_tuner():
+    tuner = AutoTuner("gemm")
+    best_block = tuner.benchmark_kernel(128, 128, 128)
+    assert best_block in [8, 16, 32], "Auto-tuner failed to find optimal block size!"
 
 if __name__ == "__main__":
-    unittest.main()
-
+    test_tuner()
+    print("Auto-Tuner Test Passed!")
