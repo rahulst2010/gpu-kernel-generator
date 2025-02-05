@@ -1,44 +1,39 @@
-# src/auto_tuner.py
+import numpy as np
+import subprocess
 import time
-from numba import cuda
-from .kernel_generator import dynamic_kernel
+from src.kernel_generator import KernelGenerator
 
-@cuda.jit
-def kernel_tuning_1(A, B, C, n):
-    idx = cuda.grid(1)
-    if idx < n:
-        C[idx] = A[idx] + B[idx]
+class AutoTuner:
+    def __init__(self, kernel_type="gemm"):
+        self.kernel_type = kernel_type
+        self.block_sizes = [8, 16, 32]  # Experimenting with different block sizes
 
-@cuda.jit
-def kernel_tuning_2(A, B, C, n):
-    idx = cuda.grid(1)
-    if idx < n:
-        C[idx] = A[idx] * B[idx]
+    def benchmark_kernel(self, M, N, K):
+        best_time = float("inf")
+        best_block = None
 
-def benchmark_kernel(kernel, A, B):
-    n = len(A)
-    C = np.zeros_like(A)
-    
-    threads_per_block = 256
-    blocks_per_grid = (n + (threads_per_block - 1)) // threads_per_block
-    
-    A_device = cuda.to_device(A)
-    B_device = cuda.to_device(B)
-    C_device = cuda.to_device(C)
-    
-    start = time.time()
-    kernel[blocks_per_grid, threads_per_block](A_device, B_device, C_device, n)
-    C_device.copy_to_host(C)
-    end = time.time()
-    
-    return end - start
+        for block_size in self.block_sizes:
+            env = {"BLOCK_SIZE": str(block_size)}
+            start = time.time()
+            subprocess.run(["hipcc", "-DBLOCK_SIZE=" + str(block_size), "-o", "temp_kernel", f"src/kernels/{self.kernel_type}_kernel.hip.cpp"], env=env)
+            end = time.time()
 
-def auto_tune(A, B):
-    time_1 = benchmark_kernel(kernel_tuning_1, A, B)
-    time_2 = benchmark_kernel(kernel_tuning_2, A, B)
-    
-    print(f"Kernel 1 Time: {time_1:.4f} seconds")
-    print(f"Kernel 2 Time: {time_2:.4f} seconds")
-    
-    return kernel_tuning_1 if time_1 < time_2 else kernel_tuning_2
+            elapsed_time = end - start
+            if elapsed_time < best_time:
+                best_time = elapsed_time
+                best_block = block_size
 
+            print(f"Block Size {block_size}: {elapsed_time:.4f}s")
+
+        print(f"Best Block Size: {best_block}")
+        return best_block
+
+    def run_optimized_gemm(self, M, N, K):
+        best_block = self.benchmark_kernel(M, N, K)
+        kernel_gen = KernelGenerator()
+        return kernel_gen.run_gemm(np.random.rand(M, K), np.random.rand(K, N), M, N, K)
+
+if __name__ == "__main__":
+    tuner = AutoTuner("gemm")
+    optimized_result = tuner.run_optimized_gemm(128, 128, 128)
+    print("Optimized GEMM Run Complete!")
