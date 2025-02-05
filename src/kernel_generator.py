@@ -1,30 +1,34 @@
-# src/kernel_generator.py
+import ctypes
 import numpy as np
-from numba import cuda
-from .auto_tuner import auto_tune
-from .llvm_optimizer import llvm_optimize
-from .layer_fusion import fused_layer
+import os
 
-@cuda.jit
-def dynamic_kernel(A, B, C, n):
-    idx = cuda.grid(1)
-    if idx < n:
-        C[idx] = A[idx] + B[idx]  # Element-wise addition (can be modified as needed)
+# Load HIP shared libraries
+hip_lib = ctypes.cdll.LoadLibrary(os.path.join(os.getcwd(), "src/kernels/libgpu_kernels.so"))
 
-def generate_dynamic_kernel(A, B, use_fusion=False):
-    n = len(A)
-    C = np.zeros_like(A)
-    
-    # Auto-tune and select the best kernel
-    best_kernel = auto_tune(A, B)
-    
-    if use_fusion:
-        # Use fused layer if enabled
-        C = fused_layer(A, B, C)
-    else:
-        # Use selected best kernel
-        dynamic_kernel(A, B, C, n)
-    
-    return C
+class KernelGenerator:
+    def __init__(self):
+        self.lib = hip_lib
 
+    def run_gemm(self, A, B, M, N, K):
+        A = A.astype(np.float32)
+        B = B.astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
 
+        A_ptr = A.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        B_ptr = B.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        C_ptr = C.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+
+        self.lib.gemm_kernel(A_ptr, B_ptr, C_ptr, M, N, K)
+        return C
+
+    def run_conv2d(self, input_tensor, kernel, width, height):
+        input_tensor = input_tensor.astype(np.float32)
+        kernel = kernel.astype(np.float32)
+        output_tensor = np.zeros((height, width), dtype=np.float32)
+
+        input_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        kernel_ptr = kernel.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        output_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+
+        self.lib.conv2d_kernel(input_ptr, kernel_ptr, output_ptr, width, height)
+        return output_tensor
